@@ -175,9 +175,12 @@ private:
     }
 
     // 執行插入資料的遞迴函數，包含資料插入以及平衡機制
+    // node: 當前要處理的節點(一開始是 root)
+    // name: 要插入的學校名稱
+    // id: 要插入的學校 ID
     AVLNode* InsertNode(AVLNode* node, string name, int id) {
         // 第一步驟：正常的二元搜尋樹 (BST) 插入
-        if (!node) {
+        if (!node) { // 這裡的 !node 其實就是 node == nullptr
             // 如果跑到葉子之外，即建立新節點，增加節點總數
             node_count++;
             return new AVLNode(name, id);
@@ -264,6 +267,11 @@ public:
         for (const auto& recordItem : records) {
             Insert(recordItem.school_name, recordItem.id);
         }
+
+        // 傳統的 index 寫法
+        // for (size_t i = 0; i < records.size(); ++i) {
+        //     Insert(records[i].school_name, records[i].id);
+        // }
     }
 
     // 印出樹的結果：包括高度、總節點數、以及樹根所存有的資料細節
