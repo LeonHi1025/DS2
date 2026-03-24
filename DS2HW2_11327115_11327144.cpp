@@ -304,6 +304,7 @@ public:
 // 進入主迴圈與給使用者的 UI 的介面提示字元函式
 void ReadCommand(int &commandChoice) {
     commandChoice = -1; 
+    string inputStr;
     while (commandChoice < 0 || commandChoice > 2) {
         cout << R"(* Data Structures and Algorithms *
 ****** Balanced Search Tree ******
@@ -312,9 +313,19 @@ void ReadCommand(int &commandChoice) {
 * 2. Build AVL tree              *
 **********************************
 Input a choice(0, 1, 2): )";
-        cin >> commandChoice;
-        if (commandChoice < 0 || commandChoice > 2) {
+        cin >> inputStr;
+
+        // 防呆機制：將使用者輸入當作字串讀取，手動轉為指令號碼
+        // 這樣可以避免輸入 'a', '!' 或其他特殊字元導致 cin 崩潰陷入無窮迴圈
+        if (inputStr == "0") {
+            commandChoice = 0;
+        } else if (inputStr == "1") {
+            commandChoice = 1;
+        } else if (inputStr == "2") {
+            commandChoice = 2;
+        } else {
             cout << "\nCommand does not exist!\n" << endl;
+            commandChoice = -1; // 繼續留在迴圈內
         }
     }
 }
