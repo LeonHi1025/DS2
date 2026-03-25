@@ -343,6 +343,7 @@ int main() {
     DataStore dataStore;
     AVLTree avlTree;
     int commandChoice = 0;
+    bool isAVLBuilt = false;
     
     // 初始化獲取第一次的命令
     ReadCommand(commandChoice);
@@ -370,15 +371,24 @@ int main() {
                 }
             }
 
-            // 若成功讀取，可以提示一下，或直接回主畫面
+            // 若成功讀取，紀錄狀態為尚未建立樹形結構
+            if (filename != "0") {
+                isAVLBuilt = false;
+                avlTree.Clear();
+            }
         } else if (commandChoice == 2) {
             // 當檔案成功讀取完畢後，透過選項2獲取所有紀錄並構建至 AVL Tree 當中
             vector<Record>& records = dataStore.GetRecords();
             if (records.empty()) {
                 cout << "### Choose 1 first. ###" << endl;
+            } else if (isAVLBuilt) {
+                // 防呆：如果已經針對這個檔案建立過 AVL 樹了，印出提示
+                cout << "### AVL tree has been built. ###" << endl;
+                avlTree.PrintResult(records);
             } else {
                 avlTree.BuildFromRecords(records);
                 avlTree.PrintResult(records);
+                isAVLBuilt = true; // 建立成功後，將旗標設為 true
             }
         }
 
