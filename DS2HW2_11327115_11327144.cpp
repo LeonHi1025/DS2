@@ -187,9 +187,9 @@ private:
         }
 
         // 以學校名稱的字串先後順序決定去左邊還去右邊
-        if (name < node->school_name) {
+        if (name.compare(node->school_name) < 0) {
             node->left = InsertNode(node->left, name, id);
-        } else if (name > node->school_name) {
+        } else if (name.compare(node->school_name) > 0) {
             node->right = InsertNode(node->right, name, id);
         } else {
             // 當兩者字串相等 (即遇到相同學校名稱時):
@@ -206,27 +206,27 @@ private:
 
         // 第四步驟：若發現失衡，依據四種情況 (LL, RR, LR, RL) 進行相對應調整
 
-        // LL (Left Left) 情境：新增節點被插入在失衡點左子樹的左側
-        if (balance > 1 && name < node->left->school_name) {
-            return LL_Rotate(node); 
-        }
-        // RR (Right Right) 情境：新增節點被插入在失衡點右子樹的右側
-        if (balance < -1 && name > node->right->school_name) {
-            return RR_Rotate(node);
-        }
-        // LR (Left Right) 情境：新增節點被插入在失衡點左子樹的右側
-        if (balance > 1 && name > node->left->school_name) {
-            // 先針對左節點進行一次左旋轉 (轉成 LL)
-            node->left = RR_Rotate(node->left);
-            // 再對整個失衡節點進行一次右旋轉
-            return LL_Rotate(node);
-        }
-        // RL (Right Left) 情境：新增節點被插入在失衡點右子樹的左側
-        if (balance < -1 && name < node->right->school_name) {
-            // 先針對右節點進行一次右旋轉 (轉成 RR)
-            node->right = LL_Rotate(node->right);
-            // 再對整個失衡節點進行一次左旋轉
-            return RR_Rotate(node);
+        if (balance > 1) { // 左邊太重
+            // 如果 Left Child BF >= 0：表示左小孩也是左邊重（或是平衡）。這就是 LL 情形，直接對 Node 進行 Right Rotation。
+            if (GetBalance(node->left) >= 0) {
+                return LL_Rotate(node);
+            } 
+            // 如果 Left Child BF < 0：表示左小孩反而是右邊重。這就是 LR 情形，你要先對 Left Child 做 Left Rotation，再對 Node 做 Right Rotation。
+            else {
+                node->left = RR_Rotate(node->left);
+                return LL_Rotate(node);
+            }
+        } 
+        else if (balance < -1) { // 右邊太重
+            // 如果 Right Child BF <= 0：表示右小孩也是右邊重（或是平衡）。這就是 RR 情形，直接對 Node 進行 Left Rotation。
+            if (GetBalance(node->right) <= 0) {
+                return RR_Rotate(node);
+            } 
+            // 如果 Right Child BF > 0：表示右小孩反而是左邊重。這就是 RL 情形，你要先對 Right Child 做 Right Rotation，再對 Node 做 Left Rotation。
+            else {
+                node->right = LL_Rotate(node->right);
+                return RR_Rotate(node);
+            }
         }
 
         // 當不用旋轉時，直接回傳原節點指標
