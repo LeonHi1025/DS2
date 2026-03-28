@@ -97,6 +97,157 @@ public:
     }
 };
 
+// --- 2-3 Tree 實作部分 ---
+
+struct TwoThreeNode {
+    vector<int> keys;             // 鍵值：上學年度畢業生數
+    vector<vector<int>> id_lists; // 儲存對應每個鍵值的序號清單
+    vector<TwoThreeNode*> children;
+    TwoThreeNode* parent;
+
+    TwoThreeNode(TwoThreeNode* p = nullptr) : parent(p) {}
+    bool isLeaf() const { return children.empty(); }
+};
+
+class TwoThreeTree {
+private:
+    TwoThreeNode* root;
+    int node_count;
+
+void Split(TwoThreeNode* node) {
+        if (node->keys.size() < 3) return;
+
+        int midKey = node->keys[1];
+        vector<int> midIds = node->id_lists[1];
+
+        // 1. 建立左、右兩個新節點 (此時 node_count 應該淨增加)
+        TwoThreeNode* leftNode = new TwoThreeNode();
+        leftNode->keys.push_back(node->keys[0]);
+        leftNode->id_lists.push_back(node->id_lists[0]);
+
+        TwoThreeNode* rightNode = new TwoThreeNode();
+        rightNode->keys.push_back(node->keys[2]);
+        rightNode->id_lists.push_back(node->id_lists[2]);
+        
+        // 分裂邏輯：原本 1 個節點變成 2 個，所以總數 +1
+        node_count++; 
+
+        if (!node->isLeaf()) {
+            leftNode->children = {node->children[0], node->children[1]};
+            rightNode->children = {node->children[2], node->children[3]};
+            for (auto c : leftNode->children) c->parent = leftNode;
+            for (auto c : rightNode->children) c->parent = rightNode;
+        }
+
+        if (!node->parent) {
+            // 情況 A: 裂到根部，產生新的根節點
+            root = new TwoThreeNode();
+            root->keys.push_back(midKey);
+            root->id_lists.push_back(midIds);
+            root->children = {leftNode, rightNode};
+            leftNode->parent = rightNode->parent = root;
+            // 產生了全新的根，節點總數再 +1
+            node_count++;
+        } else {
+            // 情況 B: 將中間值推入父節點
+            TwoThreeNode* p = node->parent;
+            auto it = lower_bound(p->keys.begin(), p->keys.end(), midKey);
+            int pos = distance(p->keys.begin(), it);
+            
+            p->keys.insert(it, midKey);
+            p->id_lists.insert(p->id_lists.begin() + pos, midIds);
+            
+            p->children.erase(p->children.begin() + pos);
+            p->children.insert(p->children.begin() + pos, rightNode);
+            p->children.insert(p->children.begin() + pos, leftNode);
+            leftNode->parent = rightNode->parent = p;
+            
+            // 遞迴檢查父節點是否也需要分裂
+            Split(p);
+        }
+
+        delete node; // 刪除原本舊的溢出節點
+    }
+
+    void ClearTree(TwoThreeNode* node) {
+        if (!node) return;
+        for (auto child : node->children) ClearTree(child);
+        delete node;
+    }
+
+    int GetHeight(TwoThreeNode* node) {
+        if (!node) return 0;
+        return 1 + (node->isLeaf() ? 0 : GetHeight(node->children[0]));
+    }
+
+public:
+    TwoThreeTree() : root(nullptr), node_count(0) {}
+    ~TwoThreeTree() { Clear(); }
+
+    void Clear() {
+        ClearTree(root);
+        root = nullptr;
+        node_count = 0;
+    }
+
+    void Insert(int grads, int id) {
+        if (!root) {
+            root = new TwoThreeNode();
+            root->keys.push_back(grads);
+            root->id_lists.push_back({id});
+            node_count = 1;
+            return;
+        }
+
+        TwoThreeNode* curr = root;
+        while (!curr->isLeaf()) {
+            bool found = false;
+            for (size_t i = 0; i < curr->keys.size(); ++i) {
+                if (grads == curr->keys[i]) {
+                    curr->id_lists[i].push_back(id);
+                    return;
+                }
+            }
+            if (grads < curr->keys[0]) curr = curr->children[0];
+            else if (curr->keys.size() == 1 || grads < curr->keys[1]) curr = curr->children[1];
+            else curr = curr->children[2];
+        }
+
+        for (size_t i = 0; i < curr->keys.size(); ++i) {
+            if (grads == curr->keys[i]) {
+                curr->id_lists[i].push_back(id);
+                return;
+            }
+        }
+
+        auto it = lower_bound(curr->keys.begin(), curr->keys.end(), grads);
+        int pos = distance(curr->keys.begin(), it);
+        curr->keys.insert(it, grads);
+        curr->id_lists.insert(curr->id_lists.begin() + pos, {id});
+
+        if (curr->keys.size() > 2) Split(curr);
+    }
+
+    void PrintResult(const vector<Record>& records) {
+        cout << "Tree height = " << GetHeight(root) << endl;
+        cout << "Number of nodes = " << node_count << endl;
+        if (!root) return;
+
+        int serial = 1;
+        for (size_t i = 0; i < root->keys.size(); ++i) {
+            vector<int> ids = root->id_lists[i];
+            sort(ids.begin(), ids.end());
+            for (int rid : ids) {
+                const Record& r = records[rid - 1];
+                cout << serial++ << ": [" << r.id << "] " << r.school_name << ", " 
+                     << r.dept_name << ", " << r.day_night << ", " << r.level << ", " 
+                     << r.students << ", " << r.graduates << endl;
+            }
+        }
+        cout << endl;
+    }
+};
+
 // AVLNode 結構體，代表 AVL Tree 的每個節點
 struct AVLNode {
     string school_name;     // 節點中的鍵值 (學校名稱)
@@ -218,7 +369,7 @@ private:
             }
         } 
         else if (balance < -1) { // 右邊太重
-            // 如果 Right Child BF <= 0：表示右小孩也是右邊重（或是平衡）。這就是 RR 情形，直接對 Node 進行 Left Rotation。
+            // 如果 Right Child BF <= 0：表示執行右小孩也是右邊重（或是平衡）。這就是 RR 情形，直接對 Node 進行 Left Rotation。
             if (GetBalance(node->right) <= 0) {
                 return RR_Rotate(node);
             } 
@@ -267,11 +418,6 @@ public:
         for (const auto& recordItem : records) {
             Insert(recordItem.school_name, recordItem.id);
         }
-
-        // 傳統的 index 寫法
-        // for (size_t i = 0; i < records.size(); ++i) {
-        //     Insert(records[i].school_name, records[i].id);
-        // }
     }
 
     // 印出樹的結果：包括高度、總節點數、以及樹根所存有的資料細節
@@ -288,16 +434,11 @@ public:
         // 樹內所有總節點數 (學校數量)
         cout << "Number of nodes = " << node_count << endl;
 
-        // 依序由小到大顯示樹根內儲存的每筆資料，
-        // 因為當初是一筆一筆依照順序推入到 record_ids 因此自然已經以 id 由小到大排序好。
+        // 依序由小到大顯示樹根內儲存的每筆資料
         for (size_t index = 0; index < root->record_ids.size(); index++) {
             int recordSequenceId = root->record_ids[index];
-            
-            // recordSequenceId 是「序號」，為 1-based (從1開始) 的資料
-            // 查詢對應的記錄時，需回到 records 從 0 開始的陣列裡面搜尋所以減一
             const Record& matchedRecord = records[recordSequenceId - 1]; 
             
-            // "index+1" 為題目要求的流水號
             cout << index + 1 << ": [" << matchedRecord.id << "] " 
                  << matchedRecord.school_name << ", " 
                  << matchedRecord.dept_name << ", "
@@ -306,6 +447,7 @@ public:
                  << matchedRecord.students << ", "
                  << matchedRecord.graduates << endl;
         }
+        cout << endl;
     }
 };
 
@@ -313,18 +455,17 @@ public:
 void ReadCommand(int &commandChoice) {
     commandChoice = -1; 
     string inputStr;
-    while (commandChoice < 0 || commandChoice > 2) {
-        cout << R"(* Data Structures and Algorithms *
-****** Balanced Search Tree ******
-* 0. QUIT                        *
-* 1. Build 23 tree               *
-* 2. Build AVL tree              *
-**********************************
-Input a choice(0, 1, 2): )";
+    while (commandChoice < 0 || commandChoice > 2) { 
+        cout << "* Data Structures and Algorithms *" << endl;
+        cout << "****** Balanced Search Tree ******" << endl;
+        cout << "* 0. QUIT                        *" << endl;
+        cout << "* 1. Build 23 tree               *" << endl;
+        cout << "* 2. Build AVL tree              *" << endl;
+        cout << "**********************************" << endl;
+        cout << "Input a choice(0, 1, 2): ";
+        
         cin >> inputStr;
 
-        // 防呆機制：將使用者輸入當作字串讀取，手動轉為指令號碼
-        // 這樣可以避免輸入 'a', '!' 或其他特殊字元導致 cin 崩潰陷入無窮迴圈
         if (inputStr == "0") {
             commandChoice = 0;
         } else if (inputStr == "1") {
@@ -333,7 +474,7 @@ Input a choice(0, 1, 2): )";
             commandChoice = 2;
         } else {
             cout << "\nCommand does not exist!\n" << endl;
-            commandChoice = -1; // 繼續留在迴圈內
+            commandChoice = -1; 
         }
     }
 }
@@ -341,6 +482,7 @@ Input a choice(0, 1, 2): )";
 // 主程式起點
 int main() {
     DataStore dataStore;
+    TwoThreeTree ttTree;
     AVLTree avlTree;
     int commandChoice = 0;
     bool isAVLBuilt = false;
@@ -352,50 +494,49 @@ int main() {
     while (commandChoice != 0) {
         if (commandChoice == 1) {
             string filename;
-            cout << "\nInput a file number ([0] Quit): ";
-            cin >> filename;
-            
-            // 若輸入檔案為 "0"，跳出此次詢問，重新顯示選單
-            if (filename == "0") {
-                cout << endl;
-                ReadCommand(commandChoice);
-                continue;
-            }
+            bool loadSuccess = false;
 
-            // 若 LoadFromFile 失敗會回傳 false，需要在此利用 while 一直嘗試請他重新輸入
-            while (!dataStore.LoadFromFile(filename)) {
+            while (!loadSuccess) {
                 cout << "\nInput a file number ([0] Quit): ";
                 cin >> filename;
-                if (filename == "0") {
-                    break;
-                }
-            }
 
-            // 若成功讀取，紀錄狀態為尚未建立樹形結構
-            if (filename != "0") {
-                isAVLBuilt = false;
-                avlTree.Clear();
+                if (filename == "0") {
+                    dataStore.Clear(); // 關鍵：退出時清空 DataStore，這樣 command 2 就會顯示 Choose 1 first
+                    break; 
+                }
+                // 這裡只呼叫一次 LoadFromFile
+                if (dataStore.LoadFromFile(filename)) {
+                    loadSuccess = true;
+                    ttTree.Clear();
+                    avlTree.Clear();
+                    isAVLBuilt = false;
+            
+                    vector<Record>& records = dataStore.GetRecords();
+                    for (const auto& r : records) {
+                        if (!r.graduates.empty()) {
+                            ttTree.Insert(stoi(r.graduates), r.id);
+                        }
+                    }
+                    ttTree.PrintResult(records);
+                }
+                // 如果失敗，LoadFromFile 內部會印出錯誤訊息，然後因為 !loadSuccess 繼續迴圈
             }
         } else if (commandChoice == 2) {
-            // 當檔案成功讀取完畢後，透過選項2獲取所有紀錄並構建至 AVL Tree 當中
             vector<Record>& records = dataStore.GetRecords();
             if (records.empty()) {
                 cout << "### Choose 1 first. ###" << endl;
             } else if (isAVLBuilt) {
-                // 防呆：如果已經針對這個檔案建立過 AVL 樹了，印出提示
                 cout << "### AVL tree has been built. ###" << endl;
                 avlTree.PrintResult(records);
             } else {
                 avlTree.BuildFromRecords(records);
                 avlTree.PrintResult(records);
-                isAVLBuilt = true; // 建立成功後，將旗標設為 true
+                isAVLBuilt = true; 
             }
         }
-
-        // 操作結束，空出一行，等待下一個主要命令
         cout << endl;
         ReadCommand(commandChoice);
     }
 
-    return 0; // 順利退出
+    return 0; 
 }
