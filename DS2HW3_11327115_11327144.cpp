@@ -1,4 +1,4 @@
-// 11327115 郭琮禮 & 11327144 莊有隆
+// 11327115 郭琮禮 & 11327144 莊有隆 
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -77,7 +77,6 @@ public:
 
         ifstream txtFile(txtFilename);
         if (!txtFile.is_open()) {
-            cout << "### " << txtFilename << " does not exist! ###\n" << endl;
             return false;
         }
 
@@ -156,27 +155,30 @@ public:
             return true;
         } else {
             // 若只有 txt，則先執行任務零轉檔
-            cout << "\n### " << binFilename << " does not exist! ###" << endl;
             if (ExecuteTask0(fileNumber)) {
+                cout << "\n### " << "input" + fileNumber + ".bin does not exist! ###" << endl;
                 return true; // 已經轉檔且載入至記憶體
             }
+
+            // 兩個都失敗，輸出錯誤訊息
+            cout << "\n### " << "input" + fileNumber + ".bin does not exist! ###" << endl;
+            cout << "\n### " << "input" + fileNumber + ".txt does not exist! ###" << endl;
             return false;
         }
     }
-    
+
     // 取得資料
     const vector<StudentRecord>& GetRecords() const {
         return records;
     }
+};
 
+class QuadraticProbing {
+public:
     // 任務一：以平方探測 (Quadratic Probing) 建立雜湊表 X
     // 處理發生碰撞的情況，並計算搜尋的平均比較次數
-    bool ExecuteTask1(string fileNumber) {
-        // 先嘗試載入二進位檔案資料
-        if (!LoadData(fileNumber)) {
-            return false;
-        }
-
+    bool Execute(DataManager& dataManager, string fileNumber) {
+        const vector<StudentRecord>& records = dataManager.GetRecords();
         if (records.empty()) {
             cout << "沒有資料可供建立雜湊表！" << endl;
             return false;
@@ -234,10 +236,10 @@ public:
                 step++;
             }
 
-            // 若 step 超過 tableSize 仍未找到空位，則放棄該筆資料
+            /* 若 step 超過 tableSize 仍未找到空位，則放棄該筆資料
             if (!inserted) {
                 cout << "無法加入資料: 學號 " << sidStr << endl;
-            }
+            }*/
         }
 
         // 搜尋不存在值的平均比較次數 (Unsuccessful Search)
@@ -279,53 +281,101 @@ public:
             return false;
         }
 
+        // 寫入檔案標頭
+        outFile << " --- Hash table created by Quadratic probing ---" << endl;
+
         // 依序從位址 [0] 開始逐筆輸出
         for (int i = 0; i < tableSize; ++i) {
             if (hashTable[i].isEmpty) {
-                // 無資料則在位址後留空白
-                outFile << "[" << i << "]\t" << endl;
+                // 無資料則在位址後留空白 (依據範例為 "[ %2d] ")
+                outFile << "[" << setw(3) << i << "] " << endl;
             } else {
-                // 有資料則印出規定欄位
-                outFile << "[" << i << "]\t" 
-                        << hashTable[i].hvalue << "\t"
-                        << hashTable[i].sid << "\t"
-                        << hashTable[i].sname << "\t"
-                        << hashTable[i].mean << endl;
+                // 有資料則印出規定欄位，透過 setw 達到完美的對齊效果
+                outFile << right << "[" << setw(3) << i << "]" 
+                        << setw(11) << hashTable[i].hvalue << ","
+                        << setw(11) << hashTable[i].sid << ","
+                        
+                        // 這我不確定!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                        << setw(11) << hashTable[i].sname << ","
+                        // 這我不確定!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+                        << setw(11) << hashTable[i].mean << endl;
             }
         }
+
+        // 結尾標線
+        outFile << " ----------------------------------------------------- " << endl;
         outFile.close();
 
         return true;
     }
 };
 
-int main() {
-    int command;
-    DataManager dataManager;
-
-    do {
+// 進入主迴圈與給使用者的 UI 的介面提示字元函式
+void ReadCommand(int &commandChoice) {
+    commandChoice = -1; 
+    string inputStr;
+    while (commandChoice < 0 || commandChoice > 2) { 
         cout << "\n* Data Structures and Algorithms *" << endl;
         cout << "************ Hash Table **********" << endl;
         cout << "* 0. QUIT                        *" << endl;
         cout << "* 1. Quadratic probing           *" << endl;
         cout << "**********************************" << endl;
         cout << "Input a choice(0, 1, 2): ";
-        cin >> command;
+        
+        cin >> inputStr;
 
-        if (command == 0) {
-            break;
-        } else if (command == 1) {
-            string fileNum;
-            cout << "\nInput a file number ([0] Quit): ";
-            cin >> fileNum;
-            if (fileNum == "0") continue;
-            dataManager.ExecuteTask1(fileNum);
+        if (inputStr == "0") {
+            commandChoice = 0;
+        } else if (inputStr == "1") {
+            commandChoice = 1;
+        } else if (inputStr == "2") {
+            commandChoice = 2;
         } else {
-            cout << "\nCommand not exist!" << endl;
+            cout << "\nCommand does not exist!" << endl;
+            commandChoice = -1; 
         }
+    }
+}
 
-    } while (true);
+int main() {
+    int commandChoice = 0;
+    DataManager dataManager;
+    QuadraticProbing qp;
+
+    ReadCommand(commandChoice);
+
+    while (commandChoice != 0) {
+        if (commandChoice == 1) {
+            string fileNum;
+            bool loadSuccess = false;
+
+            while (!loadSuccess) {
+                cout << "\nInput a file number ([0] Quit): ";
+                cin >> fileNum;
+
+                if (fileNum == "0") {
+                    dataManager.Clear();
+                    break;
+                }
+                
+                if (dataManager.LoadData(fileNum)) {
+                    loadSuccess = true;
+                    qp.Execute(dataManager, fileNum);
+                }
+
+                // 檔案載入失敗，跳出迴圈重新讓使用者輸入檔案編號
+                else {
+                    cout << endl;
+                    break;
+                }
+            }
+        } else if (commandChoice == 2) {
+            cout << "\nCommand 2 not implemented yet!" << endl;
+        }
+        
+        ReadCommand(commandChoice);
+    }
 
     return 0;
 }
-
