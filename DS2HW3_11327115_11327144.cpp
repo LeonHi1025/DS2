@@ -247,7 +247,6 @@ public:
     bool Execute(DataManager& dataManager, string fileNumber) {
         const vector<StudentRecord>& records = dataManager.GetRecords();
         if (records.empty()) {
-            cout << "\n尚未載入資料，請先執行任務一！" << endl;
             return false;
         }
 
@@ -301,7 +300,7 @@ public:
             avgSuccessful = static_cast<double>(totalSuccessfulProbes) / successfulInsertions;
         }
 
-        cout << "\nHash table has been successfully created by Double hashing" << endl;
+        cout << "\nHash table has been successfully created by Double hashing   " << endl;
         cout << fixed << setprecision(4);
         cout << "successful search: " << avgSuccessful << " comparisons on average" << endl;
 
@@ -309,7 +308,6 @@ public:
         string outFilename = "double" + fileNumber + ".txt";
         ofstream outFile(outFilename);
         if (!outFile.is_open()) {
-            cout << "無法建立輸出檔案 " << outFilename << endl;
             return false;
         }
 
@@ -355,7 +353,7 @@ void ReadCommand(int &commandChoice) {
         } else if (inputStr == "2") {
             commandChoice = 2;
         } else {
-            cout << "\nCommand does not exist!" << endl;
+            cout << "\nCommand does not exist!\n" << endl;
             commandChoice = -1; 
         }
     }
@@ -382,6 +380,7 @@ int main() {
                 if (fileNum == "0") {
                     dataManager.Clear();
                     currentFileNum = "";
+                    cout << endl;
                     break;
                 }
                 
@@ -398,7 +397,7 @@ int main() {
         } else if (commandChoice == 2) {
             // 檢查是否已存在資料與檔案編號
             if (dataManager.GetRecords().empty() || currentFileNum.empty()) {
-                cout << "\n尚未執行任務一載入資料！不執行此任務。" << endl;
+                cout << "### Command 1 first. ###\n" << endl;
             } else {
                 dh.Execute(dataManager, currentFileNum);
             }
