@@ -146,7 +146,7 @@ public:
         cout << "\n<<< There are " << adjList.size() << " IDs in total. >>>\n";
         cout << "\n<<< There are " << totalEdges << " nodes in total. >>>\n\n";
 
-        // --- 將相鄰串列依序寫入 .adj 文字檔 ---
+        // 將相鄰串列依序寫入 .adj 文字檔
         string outFilename = "pairs" + fileNum + ".adj";
         ofstream outFile(outFilename);
         
@@ -260,7 +260,7 @@ public:
         // 終端機輸出：顯示資料集內的發訊者總數
         cout << "\n<<< There are " << results.size() << " IDs in total. >>>\n\n";
 
-        // --- 將連通數結果格式化並寫入同檔名的 .cnt 延伸文字檔 ---
+        // 將連通數結果格式化並寫入同檔名的 .cnt 延伸文字檔
         string outFilename = "pairs" + fileNum + ".cnt";
         ofstream outFile(outFilename);
         
@@ -270,14 +270,12 @@ public:
         // 遍歷所有排序好的結果並輸出
         for (size_t i = 0; i < results.size(); ++i) {
             // 輸出發訊者的名次、學號及連通數
-            // 格式例如：[  1] 10227116(21): 
             outFile << "[" << setw(3) << i + 1 << "] " << results[i].putID << "(" << results[i].count << "): \n";
             
             // 若該發訊者有連通到任何收訊者，則將名單印出
             if (!results[i].reachedIDs.empty()) {
                 for (size_t j = 0; j < results[i].reachedIDs.size(); ++j) {
                     // 輸出單一收訊者學號
-                    // 格式例如：	( 1) 10127135
                     outFile << "\t(" << setw(2) << j + 1 << ") " << results[i].reachedIDs[j];
                     
                     // 格式排版規定：每印滿 12 個學號立刻換行
@@ -308,7 +306,7 @@ void printMenu() {
 
 // 程式主進入點
 int main() {
-    string choice; // 將 int 改為 string
+    string choice;
     string fileNum;
     AdjacencyList graph;
 
@@ -322,22 +320,22 @@ int main() {
             continue;
         }
 
-        if (choice == "0") { // 加上雙引號
+        if (choice == "0") {
             break;
-        } else if (choice == "1") { // 加上雙引號
+        } else if (choice == "1") {
             cout << "\nInput a file number ([0] Quit): ";
             cin >> fileNum;
             
             if (fileNum == "0") {
-                graph.clearGraph(); // <-- 補上這行，當輸入 0 時清空殘留的圖
+                graph.clearGraph(); // 當輸入 0 時清空殘留的圖
                 cout << endl;
                 continue;
             }
             graph.buildList(fileNum);
-        } else if (choice == "2") { // 加上雙引號
+        } else if (choice == "2") {
             graph.computeCounts(fileNum);
         } else {
-            // 輸入 "00" 或其他無效指令，都會直接印出這行
+            // 輸入無效指令，都會直接印出這行
             cout << "\nCommand does not exist!\n\n";
         }
     }
