@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iomanip>
+#include <queue>
 
 using namespace std;
 
@@ -176,12 +177,122 @@ public:
         outFile.close();
     }
     
-    // 預留任務二的方法成員介面
-    void computeCounts() {
-        // TODO: 實作連通數計算
+    // 任務二：計算連通數
+    // 定義：學號 X 的連通數 = 從學號 X 開始傳遞訊息(有向路徑)走訪過的相異學號總數。
+    // 實作方式：對每一位「發訊者」執行廣度優先搜尋 (BFS)，並計算可抵達的「相異收訊者」數量。
+    void computeCounts(const string& fileNum) {
+        // 若圖尚未建立 (主陣列為空)，依規定輸出錯誤訊息並返回
+        if (adjList.empty()) {
+            cout << "### There is no graph and choose 1 first. ###\n\n";
+            return;
+        }
+
+        // 內部結構：用來儲存單一發訊者的連通數計算結果
+        struct ConnectionResult {
+            string putID;               // 發訊者學號
+            int count;                  // 連通數 (可達的相異收訊者數量)
+            vector<string> reachedIDs;  // 走訪過程收集到的相異收訊者學號名單
+            
+            // 自訂排序規則：供 sort() 使用，以滿足輸出格式要求
+            bool operator<(const ConnectionResult& other) const {
+                if (count != other.count) {
+                    // 1. 主要排序：依照連通數由大到小排序 (Descending)
+                    return count > other.count; 
+                }
+                // 2. 次要排序 (Tie-breaker)：若連通數相同，依照發訊者學號字串由小到大排序 (Ascending)
+                return putID < other.putID; 
+            }
+        };
+
+        // 儲存全班每一位發訊者的最終連通結果
+        vector<ConnectionResult> results;
+        
+        // 走訪主陣列上的每一位發訊者，逐一進行 BFS
+        for (size_t i = 0; i < adjList.size(); ++i) {
+            // visited 用於記錄各節點是否已造訪過，避免無限迴圈。大小等同於圖的節點總數
+            vector<bool> visited(adjList.size(), false);
+            // BFS 使用的佇列 (Queue)，儲存節點在主陣列中的索引位置
+            queue<int> q;
+            // 記錄本次 BFS 找到的相異收訊者學號
+            vector<string> reached;
+            
+            // 將起點 (發訊者) 標記為已造訪並推入佇列
+            visited[i] = true;
+            q.push(i);
+            
+            // 開始 BFS 走訪
+            while (!q.empty()) {
+                // 取出佇列最前方的節點 (當前的發訊者)
+                int u = q.front();
+                q.pop();
+                
+                // 遍歷當前節點 u 所有相鄰的邊 (即所有發送出的訊息目標)
+                for (const Node& edge : adjList[u].edges) {
+                    // 利用二元搜尋快速找到目標收訊者的索引
+                    int v = findVertexIndex(edge.getID);
+                    
+                    // 若目標節點有效，且在本次 BFS 尚未被造訪過
+                    if (v != -1 && !visited[v]) {
+                        visited[v] = true;             // 標記為已造訪，防止重複處理
+                        reached.push_back(edge.getID); // 加入相異收訊者清單
+                        q.push(v);                     // 推入佇列以進行下一層搜尋
+                    }
+                }
+            }
+            
+            // 將走訪蒐集到的所有收訊者學號，依字串由小到大排序 (輸出格式規定)
+            sort(reached.begin(), reached.end());
+            
+            // 將本發訊者的計算結果封裝並推入 results 陣列
+            ConnectionResult res;
+            res.putID = adjList[i].id;
+            res.count = reached.size();    // 總連通數
+            res.reachedIDs = reached;      // 已排序的收訊者清單
+            results.push_back(res);
+        }
+        
+        // 針對所有的發訊者結果進行整體排序 (依據先前的 operator< 規則)
+        sort(results.begin(), results.end());
+
+        // 終端機輸出：顯示資料集內的發訊者總數
+        cout << "\n<<< There are " << results.size() << " IDs in total. >>>\n\n";
+
+        // --- 將連通數結果格式化並寫入同檔名的 .cnt 延伸文字檔 ---
+        string outFilename = "pairs" + fileNum + ".cnt";
+        ofstream outFile(outFilename);
+        
+        // 檔案開頭統計資訊
+        outFile << "<<< There are " << results.size() << " IDs in total. >>>\n";
+        
+        // 遍歷所有排序好的結果並輸出
+        for (size_t i = 0; i < results.size(); ++i) {
+            // 輸出發訊者的名次、學號及連通數
+            // 格式例如：[  1] 10227116(21): 
+            outFile << "[" << setw(3) << i + 1 << "] " << results[i].putID << "(" << results[i].count << "): \n";
+            
+            // 若該發訊者有連通到任何收訊者，則將名單印出
+            if (!results[i].reachedIDs.empty()) {
+                for (size_t j = 0; j < results[i].reachedIDs.size(); ++j) {
+                    // 輸出單一收訊者學號
+                    // 格式例如：	( 1) 10127135
+                    outFile << "\t(" << setw(2) << j + 1 << ") " << results[i].reachedIDs[j];
+                    
+                    // 格式排版規定：每印滿 12 個學號立刻換行
+                    if ((j + 1) % 12 == 0) outFile << "\n";
+                }
+                
+                // 每個發訊者的名單印完後，無條件換行。
+                // 若恰好為 12 的倍數，此換行會創造一個空白行，確保與範例排版的一致性。
+                outFile << "\n";
+            }
+        }
+        
+        // 關閉檔案，確保資料寫入磁碟
+        outFile.close();
     }
 };
 
+// 顯示主選單的函式
 void printMenu() {
     cout << "* Data Structures and Algorithms *" << endl;
     cout << "**** Graph data manipulation *****" << endl;
@@ -192,32 +303,45 @@ void printMenu() {
     cout << "Input a choice(0, 1, 2): ";
 }
 
+// 程式主進入點
 int main() {
     int choice;
     string fileNum;
     AdjacencyList graph;
 
+    // 無窮迴圈，直到使用者選擇離開 (QUIT)
     while (true) {
         printMenu();
         
+        // 防呆機制：若輸入的不是整數 (例如英文字母)
         if (!(cin >> choice)) {
-            cin.clear();
-            cin.ignore(10000, '\n');
+            cin.clear();              // 清除錯誤旗標
+            cin.ignore(10000, '\n');  // 捨棄輸入緩衝區內的所有錯誤字元
             cout << "\nInvalid input! Please try again.\n\n";
             continue;
         }
 
+        // 依據使用者的選擇執行對應功能
         if (choice == 0) {
+            // 離開程式
             break;
         } else if (choice == 1) {
+            // 任務一：輸入檔案編號，讀取資料並建立圖的相鄰串列
             cout << "\nInput a file number ([0] Quit): ";
             cin >> fileNum;
-            if (fileNum == "0") continue;
+            
+            // 若輸入 0，則取消載入並回到主選單
+            if (fileNum == "0") {
+                cout << endl;
+                continue;
+            }
             graph.buildList(fileNum);
         } else if (choice == 2) {
-            cout << "\nTask 2 (Compute connection counts) is not fully implemented yet.\n\n";
+            // 任務二：計算已建立圖的連通數，並使用相同的檔名輸出
+            graph.computeCounts(fileNum);
         } else {
-            cout << "\nInvalid choice, please try again.\n\n";
+            // 若輸入 0~2 以外的數字
+            cout << "\nCommand does not exist!\n\n";
         }
     }
     
