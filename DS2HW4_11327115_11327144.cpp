@@ -81,12 +81,15 @@ private:
     }
 
 public:
+    void clearGraph() {
+        adjList.clear();
+    }
     // 任務一：建立相鄰串列
     void buildList(const string& fileNum) {
         string filename = "pairs" + fileNum + ".bin";
         ifstream inFile(filename, ios::binary);
         if (!inFile) {
-            cout << "\nError: Cannot open file " << filename << "\n\n";
+            cout << "\n### " << filename << " does not exist! ###\n\n";
             return;
         }
 
@@ -305,42 +308,36 @@ void printMenu() {
 
 // 程式主進入點
 int main() {
-    int choice;
+    string choice; // 將 int 改為 string
     string fileNum;
     AdjacencyList graph;
 
-    // 無窮迴圈，直到使用者選擇離開 (QUIT)
     while (true) {
         printMenu();
         
-        // 防呆機制：若輸入的不是整數 (例如英文字母)
         if (!(cin >> choice)) {
-            cin.clear();              // 清除錯誤旗標
-            cin.ignore(10000, '\n');  // 捨棄輸入緩衝區內的所有錯誤字元
-            cout << "\nInvalid input! Please try again.\n\n";
+            cin.clear();
+            cin.ignore(10000, '\n');
+            cout << "\nCommand does not exist!\n\n";
             continue;
         }
 
-        // 依據使用者的選擇執行對應功能
-        if (choice == 0) {
-            // 離開程式
+        if (choice == "0") { // 加上雙引號
             break;
-        } else if (choice == 1) {
-            // 任務一：輸入檔案編號，讀取資料並建立圖的相鄰串列
+        } else if (choice == "1") { // 加上雙引號
             cout << "\nInput a file number ([0] Quit): ";
             cin >> fileNum;
             
-            // 若輸入 0，則取消載入並回到主選單
             if (fileNum == "0") {
+                graph.clearGraph(); // <-- 補上這行，當輸入 0 時清空殘留的圖
                 cout << endl;
                 continue;
             }
             graph.buildList(fileNum);
-        } else if (choice == 2) {
-            // 任務二：計算已建立圖的連通數，並使用相同的檔名輸出
+        } else if (choice == "2") { // 加上雙引號
             graph.computeCounts(fileNum);
         } else {
-            // 若輸入 0~2 以外的數字
+            // 輸入 "00" 或其他無效指令，都會直接印出這行
             cout << "\nCommand does not exist!\n\n";
         }
     }
