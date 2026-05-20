@@ -21,7 +21,7 @@ struct Record {
 #pragma pack(pop)
 
 // 輔助函式：安全提取 12 bytes 陣列中的學號
-// 修正點：遇到第一個空白或 \0 即中斷，防止讀入二進位檔末端的亂碼
+// 遇到第一個空白或 \0 即中斷，防止讀入二進位檔末端的亂碼
 string trimID(const char* rawID) {
     string s = "";
     for(int i = 0; i < 12; ++i) {
@@ -97,7 +97,6 @@ public:
         while (inFile.read(reinterpret_cast<char*>(&tempRec), sizeof(Record))) {
             rawRecords.push_back(tempRec);
             
-            // 使用嚴謹的自訂函式提取字串
             string putIDStr = trimID(tempRec.putID);
             string getIDStr = trimID(tempRec.getID);
             
@@ -139,7 +138,7 @@ public:
             sort(v.edges.begin(), v.edges.end());
         }
 
-        // 輸出題目要求的終端機統計資訊格式 (這下 ID 數量就會精準是 56 筆了！)
+        // 輸出終端機統計資訊
         cout << "\n<<< There are " << adjList.size() << " IDs in total. >>>\n";
         cout << "\n<<< There are " << totalEdges << " nodes in total. >>>\n\n";
 
@@ -152,17 +151,21 @@ public:
         
         // 輸出格式化相鄰串列
         for (size_t i = 0; i < adjList.size(); ++i) {
-            // [  1] 10127135: 
             outFile << "[" << setw(3) << i + 1 << "] " << adjList[i].id << ": \n";
             
-            // 若該學號有發送紀錄，印出所有連線並在同一列以 \t 分隔
             if (!adjList[i].edges.empty()) {
                 for (size_t j = 0; j < adjList[i].edges.size(); ++j) {
-                    // \t( 1) 10320116,   0.25
                     outFile << "\t(" << setw(2) << j + 1 << ") " 
                             << adjList[i].edges[j].getID << "," 
                             << setw(7) << defaultfloat << adjList[i].edges[j].weight;
+                    
+                    // 測資格式關鍵 1：每印滿 12 個節點立刻印出換行
+                    if ((j + 1) % 12 == 0) {
+                        outFile << "\n";
+                    }
                 }
+                // 測資格式關鍵 2：每個學號的所有連線印完後，無條件換行
+                // (如果數量剛好是 12 的倍數，這行就會產生測資裡的那個「空行」，完美吻合排版)
                 outFile << "\n";
             }
         }
@@ -180,7 +183,6 @@ public:
 };
 
 void printMenu() {
-    // 嚴格遵守首列輸出規範
     cout << "* Data Structures and Algorithms *" << endl;
     cout << "**** Graph data manipulation *****" << endl;
     cout << "* 0. QUIT                        *" << endl;
@@ -198,7 +200,6 @@ int main() {
     while (true) {
         printMenu();
         
-        // 防呆處理
         if (!(cin >> choice)) {
             cin.clear();
             cin.ignore(10000, '\n');
