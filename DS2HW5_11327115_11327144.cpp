@@ -1,91 +1,69 @@
 // 11327115 郭琮禮 & 11327144 莊有隆
+// 環境資訊：請依據實際編譯環境填寫 (例如：g++ (GCC) 11.4.0)
 
 #include <iostream>
-#include <fstream>
 #include <vector>
 #include <string>
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
-#include <cstdio>
+#include <cstdio> // 引入 C-style I/O 以大幅提升讀寫效能
 
 using namespace std;
 
-// 設定結構體對齊為 1 位元組，確保 Record 結構體的大小剛好為 24 位元組 (10 + 10 + 4)
 #pragma pack(push, 1)
 struct Record {
-    char putID[10];   // 發訊者學號 (10 bytes)
-    char getID[10];   // 收訊者學號 (10 bytes)
-    float weight;     // 互動關係的量化權重 (4 bytes)
+    char putID[10];
+    char getID[10];
+    float weight;
 };
 #pragma pack(pop)
 
-// 比較函式：依權重由大到小排序 (用於 std::stable_sort)
+struct IndexRecord {
+    float weight;
+    long long offset; 
+};
+
 bool compareRecords(const Record& a, const Record& b) {
     return a.weight > b.weight;
 }
 
-// 合併兩個 run 檔案的函式，嚴格限制記憶體中的緩衝區總量不超過 300 筆紀錄
-void mergeRuns(const string& fileA, const string& fileB, const string& fileOut) {
-    ifstream inA(fileA, ios::binary);
-    ifstream inB(fileB, ios::binary);
-    ofstream out(fileOut, ios::binary);
+// 透過傳參考共用 buffer，避免迴圈中重複配置記憶體
+void mergeRuns(const string& fileA, const string& fileB, const string& fileOut, 
+               vector<Record>& bufferA, vector<Record>& bufferB, vector<Record>& bufferOut) {
+    
+    FILE* inA = fopen(fileA.c_str(), "rb");
+    FILE* inB = fopen(fileB.c_str(), "rb");
+    FILE* out = fopen(fileOut.c_str(), "wb");
     
     if (!inA || !inB || !out) {
-        // cerr << "合併時開啟檔案失敗: " << fileA << ", " << fileB << " -> " << fileOut << endl;
+        if (inA) fclose(inA);
+        if (inB) fclose(inB);
+        if (out) fclose(out);
         return;
     }
     
-    // 將 300 筆緩衝區上限分配為：輸入 A 緩衝區 100 筆、輸入 B 緩衝區 100 筆、輸出緩衝區 100 筆
-    const int BUF_SIZE = 100;
-    vector<Record> bufferA(BUF_SIZE);
-    vector<Record> bufferB(BUF_SIZE);
-    vector<Record> bufferOut(BUF_SIZE);
+    const int BUF_SIZE = 100; // 三個 buffer 各 100，總和剛好符合 300 的規定
+    int sizeA = fread(bufferA.data(), sizeof(Record), BUF_SIZE, inA);
+    int sizeB = fread(bufferB.data(), sizeof(Record), BUF_SIZE, inB);
+    int sizeOut = 0;
     
-    int sizeA = 0, sizeB = 0, sizeOut = 0;
     int idxA = 0, idxB = 0;
-    bool eofA = false, eofB = false;
+    bool eofA = (sizeA == 0), eofB = (sizeB == 0);
     
-    // 輔助 Lambda：當輸入 A 緩衝區用盡且檔案未結束時，重新從 A 檔案讀入資料
-    auto refillA = [&]() {
+    while ((idxA < sizeA || !eofA) && (idxB < sizeB || !eofB)) {
         if (idxA >= sizeA && !eofA) {
-            inA.read(reinterpret_cast<char*>(bufferA.data()), BUF_SIZE * sizeof(Record));
-            sizeA = inA.gcount() / sizeof(Record);
+            sizeA = fread(bufferA.data(), sizeof(Record), BUF_SIZE, inA);
             idxA = 0;
             if (sizeA == 0) eofA = true;
         }
-    };
-    
-    // 輔助 Lambda：當輸入 B 緩衝區用盡且檔案未結束時，重新從 B 檔案讀入資料
-    auto refillB = [&]() {
         if (idxB >= sizeB && !eofB) {
-            inB.read(reinterpret_cast<char*>(bufferB.data()), BUF_SIZE * sizeof(Record));
-            sizeB = inB.gcount() / sizeof(Record);
+            sizeB = fread(bufferB.data(), sizeof(Record), BUF_SIZE, inB);
             idxB = 0;
             if (sizeB == 0) eofB = true;
         }
-    };
-    
-    // 輔助 Lambda：將輸出緩衝區中的資料寫入硬碟並清空緩衝區
-    auto flushOut = [&]() {
-        if (sizeOut > 0) {
-            out.write(reinterpret_cast<const char*>(bufferOut.data()), sizeOut * sizeof(Record));
-            sizeOut = 0;
-        }
-    };
-    
-    // 初始化讀取
-    refillA();
-    refillB();
-    
-    // 雙指針合併兩個已排序的 runs
-    while ((idxA < sizeA || !eofA) && (idxB < sizeB || !eofB)) {
-        refillA();
-        refillB();
         
         if (idxA < sizeA && idxB < sizeB) {
-            // 依權重由大到小排序。
-            // 當權重相等時，優先選擇來自 A 的紀錄以保持穩定排序 (因 A 對應於檔案中較早出現的 run)
             if (bufferA[idxA].weight >= bufferB[idxB].weight) {
                 bufferOut[sizeOut++] = bufferA[idxA++];
             } else {
@@ -97,90 +75,79 @@ void mergeRuns(const string& fileA, const string& fileB, const string& fileOut) 
             bufferOut[sizeOut++] = bufferB[idxB++];
         }
         
-        // 輸出緩衝區滿了則寫入硬碟
         if (sizeOut == BUF_SIZE) {
-            flushOut();
+            fwrite(bufferOut.data(), sizeof(Record), sizeOut, out);
+            sizeOut = 0;
         }
     }
     
-    // 將 A 剩餘的所有資料寫入輸出緩衝區
     while (idxA < sizeA || !eofA) {
-        refillA();
-        if (idxA < sizeA) {
-            bufferOut[sizeOut++] = bufferA[idxA++];
-            if (sizeOut == BUF_SIZE) {
-                flushOut();
-            }
+        if (idxA >= sizeA && !eofA) {
+            sizeA = fread(bufferA.data(), sizeof(Record), BUF_SIZE, inA);
+            idxA = 0;
+            if (sizeA == 0) { eofA = true; break; }
+        }
+        bufferOut[sizeOut++] = bufferA[idxA++];
+        if (sizeOut == BUF_SIZE) {
+            fwrite(bufferOut.data(), sizeof(Record), sizeOut, out);
+            sizeOut = 0;
         }
     }
     
-    // 將 B 剩餘的所有資料寫入輸出緩衝區
     while (idxB < sizeB || !eofB) {
-        refillB();
-        if (idxB < sizeB) {
-            bufferOut[sizeOut++] = bufferB[idxB++];
-            if (sizeOut == BUF_SIZE) {
-                flushOut();
-            }
+        if (idxB >= sizeB && !eofB) {
+            sizeB = fread(bufferB.data(), sizeof(Record), BUF_SIZE, inB);
+            idxB = 0;
+            if (sizeB == 0) { eofB = true; break; }
+        }
+        bufferOut[sizeOut++] = bufferB[idxB++];
+        if (sizeOut == BUF_SIZE) {
+            fwrite(bufferOut.data(), sizeof(Record), sizeOut, out);
+            sizeOut = 0;
         }
     }
     
-    // 寫入最後殘留的資料
-    flushOut();
+    if (sizeOut > 0) {
+        fwrite(bufferOut.data(), sizeof(Record), sizeOut, out);
+    }
+    
+    fclose(inA);
+    fclose(inB);
+    fclose(out);
 }
 
-void runMission1() {
-    string fileNum;
-    string filename;
+bool runMission1(const string& fileNum) {
+    string filename = "pairs" + fileNum + ".bin";
     
-    // 輸入檔名循環，防呆並驗證檔案是否存在
-    while (true) {
-        cout << "\nInput the file name: [0]Quit\n";
-        if (!(cin >> fileNum)) {
-            cin.clear();
-            cin.ignore(10000, '\n');
-            continue;
-        }
-        if (fileNum == "0") {
-            return;
-        }
-        
-        filename = "pairs" + fileNum + ".bin";
-        ifstream testFile(filename, ios::binary);
-        if (!testFile) {
-            cout << "\n" << filename << " does not exist!!!\n";
-            continue;
-        }
-        testFile.close();
-        break;
+    // 檢查檔案是否存在
+    FILE* testFile = fopen(filename.c_str(), "rb");
+    if (!testFile) {
+        cout << "\n" << filename << " does not exist!!!\n";
+        return false;
     }
+    fclose(testFile);
     
-    // 步驟 1：內部排序與初始 Runs 生成 (Internal Sort Phase)
     auto start_internal = chrono::high_resolution_clock::now();
     
-    ifstream inFile(filename, ios::binary);
+    FILE* inFile = fopen(filename.c_str(), "rb");
     int numRuns = 0;
-    const int CHUNK_SIZE = 300; // 記憶體緩衝區上限為 300 筆資料
+    const int CHUNK_SIZE = 300; 
     vector<Record> chunkBuffer(CHUNK_SIZE);
     
-    while (inFile) {
-        // 從二進位檔讀入最多 300 筆紀錄
-        inFile.read(reinterpret_cast<char*>(chunkBuffer.data()), CHUNK_SIZE * sizeof(Record));
-        int recordsRead = inFile.gcount() / sizeof(Record);
+    while (true) {
+        size_t recordsRead = fread(chunkBuffer.data(), sizeof(Record), CHUNK_SIZE, inFile);
         if (recordsRead == 0) break;
         
-        // 記憶體內穩定排序 (當權重相同時，保持原檔案中的次序)
         stable_sort(chunkBuffer.begin(), chunkBuffer.begin() + recordsRead, compareRecords);
         
-        // 寫入此 run 的臨時二進位檔案
         string runFileName = "temp_0_" + to_string(numRuns) + ".bin";
-        ofstream runFile(runFileName, ios::binary);
-        runFile.write(reinterpret_cast<const char*>(chunkBuffer.data()), recordsRead * sizeof(Record));
-        runFile.close();
+        FILE* runFile = fopen(runFileName.c_str(), "wb");
+        fwrite(chunkBuffer.data(), sizeof(Record), recordsRead, runFile);
+        fclose(runFile);
         
         numRuns++;
     }
-    inFile.close();
+    fclose(inFile);
     
     auto end_internal = chrono::high_resolution_clock::now();
     double time_internal = chrono::duration<double, milli>(end_internal - start_internal).count();
@@ -188,29 +155,27 @@ void runMission1() {
     cout << "\nThe internal sort is completed. Check the initial sorted runs! \n";
     cout << "\nNow there are " << numRuns << " runs.\n";
     
-    // 步驟 2：外部兩兩合併階段 (External Merge Phase)
     auto start_external = chrono::high_resolution_clock::now();
     
     int pass = 0;
     int currentNumRuns = numRuns;
     
-    // 當剩餘 runs 大於 1 時持續兩兩合併
+    // 預先宣告合併用的緩衝區，避免在迴圈內反覆配置記憶體
+    vector<Record> bufferA(100), bufferB(100), bufferOut(100);
+    
     while (currentNumRuns > 1) {
         int nextNumRuns = 0;
         for (int i = 0; i < currentNumRuns; i += 2) {
             string outName = "temp_" + to_string(pass + 1) + "_" + to_string(nextNumRuns) + ".bin";
             if (i + 1 < currentNumRuns) {
-                // 有成對的 runs 可以進行合併
                 string inNameA = "temp_" + to_string(pass) + "_" + to_string(i) + ".bin";
                 string inNameB = "temp_" + to_string(pass) + "_" + to_string(i + 1) + ".bin";
                 
-                mergeRuns(inNameA, inNameB, outName);
+                mergeRuns(inNameA, inNameB, outName, bufferA, bufferB, bufferOut);
                 
-                // 合併完後立刻刪除舊的暫存檔案以節省空間
                 remove(inNameA.c_str());
                 remove(inNameB.c_str());
             } else {
-                // 若為奇數 run 無法成對，直接將其重新命名並傳遞至下一輪
                 string inName = "temp_" + to_string(pass) + "_" + to_string(i) + ".bin";
                 rename(inName.c_str(), outName.c_str());
             }
@@ -221,23 +186,19 @@ void runMission1() {
         cout << "\nNow there are " << currentNumRuns << " runs.\n";
     }
     
-    // 確定最後產生的排序檔案名稱
     string finalTempName = "temp_" + to_string(pass) + "_0.bin";
     string finalName = "order" + fileNum + ".bin";
     
-    // 若原檔案較小且只產生了 1 個 initial run，此時未進入合併迴圈
     if (numRuns == 1) {
         finalTempName = "temp_0_0.bin";
     }
     
     if (numRuns > 0) {
-        // 先移除可能已存在的舊檔案，再將最終的 run 重新命名為 order<fileNum>.bin
         remove(finalName.c_str());
         rename(finalTempName.c_str(), finalName.c_str());
     } else {
-        // 若輸入為空檔，則建立空的 order 檔案
-        ofstream emptyOut(finalName, ios::binary);
-        emptyOut.close();
+        FILE* emptyOut = fopen(finalName.c_str(), "wb");
+        if (emptyOut) fclose(emptyOut);
     }
     
     auto end_external = chrono::high_resolution_clock::now();
@@ -245,16 +206,59 @@ void runMission1() {
     
     double time_total = time_internal + time_external;
     
-    // 輸出耗費時間資訊
     cout << "\nThe execution time ...\n";
     cout << fixed << setprecision(3);
     cout << "Internal Sort = " << time_internal << " ms\n";
     cout << "External Sort = " << time_external << " ms\n";
     cout << "Total Execution Time = " << time_total << " ms\n";
+    
+    cout.unsetf(ios::fixed);
+    cout.precision(6);
+    
+    return true;
+}
+
+void runMission2(const string& fileNum) {
+    string filename = "order" + fileNum + ".bin";
+    FILE* inFile = fopen(filename.c_str(), "rb");
+    if (!inFile) {
+        cout << "\n" << filename << " does not exist!!!\n";
+        return;
+    }
+    
+    vector<IndexRecord> primaryIndex;
+    const int CHUNK_SIZE = 300;
+    vector<Record> chunkBuffer(CHUNK_SIZE);
+    
+    long long currentOffset = 0; 
+    float lastWeight = -1.0f;
+    bool isFirst = true;
+    
+    while (true) {
+        size_t recordsRead = fread(chunkBuffer.data(), sizeof(Record), CHUNK_SIZE, inFile);
+        if (recordsRead == 0) break;
+        
+        for (size_t i = 0; i < recordsRead; ++i) {
+            if (isFirst || chunkBuffer[i].weight != lastWeight) {
+                primaryIndex.push_back({chunkBuffer[i].weight, currentOffset});
+                lastWeight = chunkBuffer[i].weight;
+                isFirst = false;
+            }
+            currentOffset++; 
+        }
+    }
+    fclose(inFile);
+    
+    cout << "\n<Primary index>: (key, offset)\n";
+    for (size_t i = 0; i < primaryIndex.size(); ++i) {
+        cout << "[" << i + 1 << "] (" << primaryIndex[i].weight << ", " << primaryIndex[i].offset << ")\n";
+    }
 }
 
 int main() {
-    // 程式一開始即直接印出選單資訊，並直接進入任務一 (等待輸入檔名)
+    string fileNum;
+    string command;
+
     while (true) {
         cout << "* Data Structures and Algorithms *\n";
         cout << "**********************************\n";
@@ -266,18 +270,33 @@ int main() {
         cout << "Mission 1: External merge sort \n";
         cout << "##################################\n";
         
-        runMission1();
+        cout << "\nInput the file name: [0]Quit\n";
+        if (!(cin >> fileNum)) {
+            cin.clear();
+            cin.ignore(10000, '\n');
+            continue;
+        }
         
-        // 執行完後詢問使用者是否繼續或結束
-        cout << "\n[0]Quit or [Any other key]continue? ";
-        string cont;
-        if (!(cin >> cont)) {
+        if (fileNum == "0") {
             break;
         }
-        if (cont == "0") {
+        
+        bool success = runMission1(fileNum);
+        
+        if (success) {
+            cout << "\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n";
+            cout << "Mission 2: Build the primary index \n";
+            cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n";
+            
+            runMission2(fileNum);
+        }
+        
+        cout << "\n[0]Quit or [Any other key]continue?\n";
+        cin >> command;
+        if (command == "0") {
             break;
         }
-        cout << endl; // 印出換行以保持選單外觀一致
+        cout << "\n";
     }
     return 0;
 }
