@@ -353,8 +353,8 @@ public:
                 int count = 1;
                 for (auto const& pair : secondaryIndex) {
                     cout << "[" << setw(4) << right << count++ << "]   " 
-                         << setw(8) << right << pair.first << "            " 
-                         << setw(3) << right << pair.second.size() << "\n";
+                         << setw(8) << right << pair.first 
+                         << setw(12) << right << pair.second.size() << "\n";
                 }
 
                 // --- 任務四: 利用輔助索引檢索資料 ---
