@@ -75,6 +75,23 @@ private:
         }
     }
 
+    float readFloat() {
+        float val;
+        while (true) {
+            cout << "\nInput a floating number in [0.01, " << 1.00 << "]: ";
+            if (cin >> val) {
+                if (val >= 0.01f && val <= 1.00f) {
+                    return val;
+                } else {
+                    cout << "\n### It is NOT in [0.01,1] ###\n";
+                }
+            } else {
+                cin.clear();
+                cin.ignore(10000, '\n');
+            }
+        }
+    }
+
 public:
     void setBufferSize(int size) {
         bufferSize = size;
@@ -204,7 +221,7 @@ public:
         auto end_internal = chrono::high_resolution_clock::now();
         double time_internal = chrono::duration<double, milli>(end_internal - start_internal).count();
         
-        cout << "\nThe internal sort is completed. Check the initial sorted runs!\n";
+        cout << "\nThe internal sort is completed. Check the initial sorted runs! \n";
         cout << "\nNow there are " << numRuns << " runs.\n";
         
         auto start_external = chrono::high_resolution_clock::now();
@@ -290,11 +307,8 @@ public:
             cout << "##################################\n";
             
             cout << "\nInput two values in (0,1] for range search.\n";
-            float val1, val2;
-            cout << "\nInput a floating number in [0.01, 1]: ";
-            cin >> val1;
-            cout << "\nInput a floating number in [0.01, 1]: ";
-            cin >> val2;
+            float val1 = readFloat();
+            float val2 = readFloat();
 
             float high = max(val1, val2);
             float low = min(val1, val2);
@@ -409,14 +423,23 @@ int main() {
     cout << "* 1. External merge sort on file *\n";
     cout << "* 2: Construct the primary index *\n";
     cout << "* 3: Range search to build index *\n";
-    cout << "* 4: Retrieve records from index *\n";
+    cout << "* 4: Get maximum spanning forest *\n";
     cout << "**********************************\n";
     cout << "*** The buffer size is 300\n";
-    cout << "Input a new buffer size in [300, 60000]: ";
-    
-    int bufSize;
-    if (!(cin >> bufSize)) {
-        bufSize = 300;
+    int bufSize = 300;
+    while (true) {
+        cout << "Input a new buffer size in [300, 60000]: ";
+        if (cin >> bufSize) {
+            if (bufSize >= 300 && bufSize <= 60000) {
+                break;
+            } else {
+                cout << "\n### It is NOT in [300,60000] ###\n\n";
+            }
+        } else {
+            cin.clear();
+            cin.ignore(10000, '\n');
+            cout << "\n";
+        }
     }
     exSort.setBufferSize(bufSize);
 
