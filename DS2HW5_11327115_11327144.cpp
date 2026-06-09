@@ -6,7 +6,8 @@
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
-#include <cstdio> // 引入 C-style I/O 以大幅提升讀寫效能
+#include <cstdio>
+#include <map>
 
 using namespace std;
 
@@ -27,18 +28,31 @@ bool compareRecords(const Record& a, const Record& b) {
     return a.weight > b.weight;
 }
 
+// 輔助函式：將 char array 轉換為 string 並去除多餘字元
+string toString(const char* arr, int maxLen) {
+    string s;
+    for (int i = 0; i < maxLen && arr[i] != '\0' && arr[i] != ' '; ++i) {
+        s += arr[i];
+    }
+    return s;
+}
+
 class ExternalSort {
 private:
-    // 輔助函式：當輸入緩衝區用盡且檔案未結束時，從檔案重新讀入資料
+    int bufferSize = 300;
+    int mergeChunkSize = 100;
+
+    vector<IndexRecord> primaryIndex;
+    map<string, vector<long long>> secondaryIndex;
+
     void refill(FILE* file, vector<Record>& buffer, int& size, int& idx, bool& eof) {
         if (idx >= size && !eof) {
-            size = fread(buffer.data(), sizeof(Record), 100, file);
+            size = fread(buffer.data(), sizeof(Record), mergeChunkSize, file);
             idx = 0;
             if (size == 0) eof = true;
         }
     }
 
-    // 輔助函式：將輸出緩衝區中的資料寫入硬碟並清空緩衝區
     void flush(FILE* file, vector<Record>& buffer, int& size) {
         if (size > 0) {
             fwrite(buffer.data(), sizeof(Record), size, file);
@@ -46,24 +60,28 @@ private:
         }
     }
 
-    // 輔助函式：當其中一個檔案處理完畢後，將另一個檔案剩餘的所有資料複製到輸出檔
     void copyRemaining(FILE* inFile, FILE* outFile, vector<Record>& bufferIn, int& sizeIn, int& idxIn, bool& eofIn,
                        vector<Record>& bufferOut, int& sizeOut) {
         while (idxIn < sizeIn || !eofIn) {
             if (idxIn >= sizeIn && !eofIn) {
-                sizeIn = fread(bufferIn.data(), sizeof(Record), 100, inFile);
+                sizeIn = fread(bufferIn.data(), sizeof(Record), mergeChunkSize, inFile);
                 idxIn = 0;
                 if (sizeIn == 0) { eofIn = true; break; }
             }
             bufferOut[sizeOut++] = bufferIn[idxIn++];
-            if (sizeOut == 100) {
+            if (sizeOut == mergeChunkSize) {
                 flush(outFile, bufferOut, sizeOut);
             }
         }
     }
 
 public:
-    // 透過傳參考共用 buffer，避免迴圈中重複配置記憶體
+    void setBufferSize(int size) {
+        bufferSize = size;
+        mergeChunkSize = size / 3;
+        if (mergeChunkSize < 1) mergeChunkSize = 1;
+    }
+
     void mergeRuns(const string& fileA, const string& fileB, const string& fileOut, 
                    vector<Record>& bufferA, vector<Record>& bufferB, vector<Record>& bufferOut) {
         
@@ -78,14 +96,13 @@ public:
             return;
         }
         
-        int sizeA = fread(bufferA.data(), sizeof(Record), 100, inA);
-        int sizeB = fread(bufferB.data(), sizeof(Record), 100, inB);
+        int sizeA = fread(bufferA.data(), sizeof(Record), mergeChunkSize, inA);
+        int sizeB = fread(bufferB.data(), sizeof(Record), mergeChunkSize, inB);
         int sizeOut = 0;
         
         int idxA = 0, idxB = 0;
         bool eofA = (sizeA == 0), eofB = (sizeB == 0);
         
-        // 雙指針合併兩個已排序的 runs
         while ((idxA < sizeA || !eofA) && (idxB < sizeB || !eofB)) {
             refill(inA, bufferA, sizeA, idxA, eofA);
             refill(inB, bufferB, sizeB, idxB, eofB);
@@ -102,12 +119,11 @@ public:
                 bufferOut[sizeOut++] = bufferB[idxB++];
             }
             
-            if (sizeOut == 100) {
+            if (sizeOut == mergeChunkSize) {
                 flush(out, bufferOut, sizeOut);
             }
         }
         
-        // 複製剩餘的紀錄
         copyRemaining(inA, out, bufferA, sizeA, idxA, eofA, bufferOut, sizeOut);
         copyRemaining(inB, out, bufferB, sizeB, idxB, eofB, bufferOut, sizeOut);
         
@@ -118,20 +134,17 @@ public:
         fclose(out);
     }
 
-    // 階段一：讀取並排序初始區塊 (Internal Sort)，生成初始 runs 並回傳總數量
     int generateInitialRuns(const string& filename) {
         FILE* inFile = fopen(filename.c_str(), "rb");
         if (!inFile) return 0;
         
         int numRuns = 0;
-        const int CHUNK_SIZE = 300; 
-        vector<Record> chunkBuffer(CHUNK_SIZE);
+        vector<Record> chunkBuffer(bufferSize);
         
         while (true) {
-            size_t recordsRead = fread(chunkBuffer.data(), sizeof(Record), CHUNK_SIZE, inFile);
+            size_t recordsRead = fread(chunkBuffer.data(), sizeof(Record), bufferSize, inFile);
             if (recordsRead == 0) break;
             
-            // 穩定排序以保留同權重紀錄的原始順序
             stable_sort(chunkBuffer.begin(), chunkBuffer.begin() + recordsRead, compareRecords);
             
             string runFileName = "temp_0_" + to_string(numRuns) + ".bin";
@@ -146,11 +159,10 @@ public:
         return numRuns;
     }
 
-    // 階段二：對所有 runs 進行兩兩合併 (External Sort)，並由 reference 帶回最終 pass 數
     void mergeAllRuns(int numRuns, int& finalPass) {
         int pass = 0;
         int currentNumRuns = numRuns;
-        vector<Record> bufferA(100), bufferB(100), bufferOut(100);
+        vector<Record> bufferA(mergeChunkSize), bufferB(mergeChunkSize), bufferOut(mergeChunkSize);
         
         while (currentNumRuns > 1) {
             int nextNumRuns = 0;
@@ -180,7 +192,6 @@ public:
     bool runMission1(const string& fileNum) {
         string filename = "pairs" + fileNum + ".bin";
         
-        // 檢查檔案是否存在
         FILE* testFile = fopen(filename.c_str(), "rb");
         if (!testFile) {
             cout << "\n" << filename << " does not exist!!!\n";
@@ -188,21 +199,18 @@ public:
         }
         fclose(testFile);
         
-        // --- 1. 內部排序與初始 Runs 生成 ---
         auto start_internal = chrono::high_resolution_clock::now();
         int numRuns = generateInitialRuns(filename);
         auto end_internal = chrono::high_resolution_clock::now();
         double time_internal = chrono::duration<double, milli>(end_internal - start_internal).count();
         
-        cout << "\nThe internal sort is completed. Check the initial sorted runs! \n";
+        cout << "\nThe internal sort is completed. Check the initial sorted runs!\n";
         cout << "\nNow there are " << numRuns << " runs.\n";
         
-        // --- 2. 外部合併階段 ---
         auto start_external = chrono::high_resolution_clock::now();
         int finalPass = 0;
         mergeAllRuns(numRuns, finalPass);
         
-        // 重新命名最後合併完成的檔案為 order<fileNum>.bin
         string finalTempName = "temp_" + to_string(finalPass) + "_0.bin";
         string finalName = "order" + fileNum + ".bin";
         
@@ -220,7 +228,6 @@ public:
         
         auto end_external = chrono::high_resolution_clock::now();
         double time_external = chrono::duration<double, milli>(end_external - start_external).count();
-        
         double time_total = time_internal + time_external;
         
         cout << "\nThe execution time ...\n";
@@ -236,6 +243,7 @@ public:
     }
 
     void runMission2(const string& fileNum) {
+        primaryIndex.clear();
         string filename = "order" + fileNum + ".bin";
         FILE* inFile = fopen(filename.c_str(), "rb");
         if (!inFile) {
@@ -243,16 +251,13 @@ public:
             return;
         }
         
-        vector<IndexRecord> primaryIndex;
-        const int CHUNK_SIZE = 300;
-        vector<Record> chunkBuffer(CHUNK_SIZE);
-        
+        vector<Record> chunkBuffer(bufferSize);
         long long currentOffset = 0; 
         float lastWeight = -1.0f;
         bool isFirst = true;
         
         while (true) {
-            size_t recordsRead = fread(chunkBuffer.data(), sizeof(Record), CHUNK_SIZE, inFile);
+            size_t recordsRead = fread(chunkBuffer.data(), sizeof(Record), bufferSize, inFile);
             if (recordsRead == 0) break;
             
             for (size_t i = 0; i < recordsRead; ++i) {
@@ -271,6 +276,127 @@ public:
             cout << "[" << i + 1 << "] (" << primaryIndex[i].weight << ", " << primaryIndex[i].offset << ")\n";
         }
     }
+
+    void runMission3and4(const string& fileNum) {
+        if (primaryIndex.empty()) return;
+
+        string filename = "order" + fileNum + ".bin";
+        FILE* inFile = fopen(filename.c_str(), "rb");
+        if (!inFile) return;
+
+        while (true) {
+            cout << "\n##################################\n";
+            cout << "* 3: Range search to build index *\n";
+            cout << "##################################\n";
+            
+            cout << "\nInput two values in (0,1] for range search.\n";
+            float val1, val2;
+            cout << "\nInput a floating number in [0.01, 1]: ";
+            cin >> val1;
+            cout << "\nInput a floating number in [0.01, 1]: ";
+            cin >> val2;
+
+            float high = max(val1, val2);
+            float low = min(val1, val2);
+
+            long long startOffset = -1;
+            long long endOffset = -1;
+            
+            fseek(inFile, 0, SEEK_END);
+            long long fileTotalRecords = ftell(inFile) / sizeof(Record);
+
+            // 在 Primary Index 尋找對應權重範圍的起點與終點位移量
+            for (size_t i = 0; i < primaryIndex.size(); ++i) {
+                if (primaryIndex[i].weight <= high && startOffset == -1) {
+                    startOffset = primaryIndex[i].offset;
+                }
+                if (primaryIndex[i].weight < low) {
+                    endOffset = primaryIndex[i].offset - 1;
+                    break;
+                }
+            }
+            
+            // 如果只有找到起點但沒有觸發小於下限的條件，代表範圍直到檔尾
+            if (startOffset != -1 && endOffset == -1) {
+                endOffset = fileTotalRecords - 1;
+            }
+
+            if (startOffset == -1 || startOffset > endOffset) {
+                cout << "\nThere are 0 records in total.\n";
+                cout << "There are 0 senders in total.\n";
+            } else {
+                secondaryIndex.clear();
+                long long rangeTotal = endOffset - startOffset + 1;
+                
+                fseek(inFile, startOffset * sizeof(Record), SEEK_SET);
+                long long recordsLeft = rangeTotal;
+                vector<Record> chunkBuffer(bufferSize);
+                long long currentOffset = startOffset;
+                
+                // 批次讀取範圍內的資料建立 Secondary Index
+                while (recordsLeft > 0) {
+                    size_t toRead = min((long long)bufferSize, recordsLeft);
+                    size_t recordsRead = fread(chunkBuffer.data(), sizeof(Record), toRead, inFile);
+                    if (recordsRead == 0) break;
+                    
+                    for (size_t i = 0; i < recordsRead; ++i) {
+                        string pstr = toString(chunkBuffer[i].putID, 10);
+                        secondaryIndex[pstr].push_back(currentOffset);
+                        currentOffset++;
+                    }
+                    recordsLeft -= recordsRead;
+                }
+                
+                cout << "\nThere are " << rangeTotal << " records in total.\n";
+                cout << "There are " << secondaryIndex.size() << " senders in total.\n";
+                
+                int count = 1;
+                for (auto const& pair : secondaryIndex) {
+                    cout << "[" << setw(4) << right << count++ << "]   " 
+                         << setw(8) << right << pair.first << "            " 
+                         << setw(3) << right << pair.second.size() << "\n";
+                }
+
+                // --- 任務四: 利用輔助索引檢索資料 ---
+                while (true) {
+                    cout << "\nInput a student ID ([4] Quit): ";
+                    string queryID;
+                    cin >> queryID;
+                    
+                    if (queryID == "4") {
+                        break;
+                    }
+                    
+                    auto it = secondaryIndex.find(queryID);
+                    if (it == secondaryIndex.end()) {
+                        cout << "Sender " << queryID << " does not exist.\n";
+                    } else {
+                        cout << "Sender " << queryID << " has " << it->second.size() << " records.\n";
+                        int rcount = 1;
+                        for (long long offset : it->second) {
+                            Record rec;
+                            fseek(inFile, offset * sizeof(Record), SEEK_SET);
+                            fread(&rec, sizeof(Record), 1, inFile);
+                            
+                            string gidStr = toString(rec.getID, 10);
+                            // 在輸出前先設定好浮點數格式與欄位寬度
+                            cout << "[" << setw(3) << right << rcount++ << "]   " 
+                                 << setw(8) << right << gidStr << "        " 
+                                 << fixed << setprecision(2) << rec.weight << "\n";
+                        }
+                    }
+                }
+            }
+
+            cout << "\n[3]Quit or [Any other key]continue?\n";
+            string cmd;
+            cin >> cmd;
+            if (cmd == "3") {
+                break;
+            }
+        }
+        fclose(inFile);
+    }
 };
 
 int main() {
@@ -278,15 +404,25 @@ int main() {
     string command;
     ExternalSort exSort;
 
+    cout << "* Data Structures and Algorithms *\n";
+    cout << "**********************************\n";
+    cout << "* 1. External merge sort on file *\n";
+    cout << "* 2: Construct the primary index *\n";
+    cout << "* 3: Range search to build index *\n";
+    cout << "* 4: Retrieve records from index *\n";
+    cout << "**********************************\n";
+    cout << "*** The buffer size is 300\n";
+    cout << "Input a new buffer size in [300, 60000]: ";
+    
+    int bufSize;
+    if (!(cin >> bufSize)) {
+        bufSize = 300;
+    }
+    exSort.setBufferSize(bufSize);
+
     while (true) {
-        cout << "* Data Structures and Algorithms *\n";
-        cout << "**********************************\n";
+        cout << "\n##################################\n";
         cout << "* 1. External merge sort on file *\n";
-        cout << "* 2: Construct the primary index *\n";
-        cout << "**********************************\n";
-        cout << "*** The buffer size is 300\n";
-        cout << "##################################\n";
-        cout << "Mission 1: External merge sort \n";
         cout << "##################################\n";
         
         while (true) {
@@ -312,13 +448,14 @@ int main() {
         }
         
         if (fileNum != "0") {
-            exSort.runMission1(fileNum);
-            
-            cout << "\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n";
-            cout << "Mission 2: Build the primary index \n";
-            cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n";
-            
-            exSort.runMission2(fileNum);
+            if (exSort.runMission1(fileNum)) {
+                cout << "\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n";
+                cout << "* 2: Construct the primary index *\n";
+                cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n";
+                exSort.runMission2(fileNum);
+                
+                exSort.runMission3and4(fileNum);
+            }
         }
         
         cout << "\n[0]Quit or [Any other key]continue?\n";
@@ -326,7 +463,6 @@ int main() {
         if (command == "0") {
             break;
         }
-        cout << "\n";
     }
     return 0;
 }
